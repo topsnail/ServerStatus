@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
-# ServerStatus 生产部署：拉代码 → 构建镜像 → 重启容器 → 健康检查
+# ServerStatus 生产部署：拉代码 → docker build → compose up → 健康检查
 # 绝不覆盖：.env、data/
 set -euo pipefail
 
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$APP_DIR"
 
-# --project-directory 固定为仓库根，避免 -f deploy/... 时读错 .env 位置
+# --project-directory=仓库根：让 ${ADMIN_TOKEN} 等从根目录 .env 插值
+# 镜像不用 compose build（Compose v5 bake 在子目录 compose + project-directory 下会找错 Dockerfile）
 COMPOSE=(docker compose --project-directory "$APP_DIR" -f "$APP_DIR/deploy/docker-compose.yml")
+IMAGE_TAG="${DEPLOY_IMAGE_TAG:-serverstatus:local}"
 BRANCH="${DEPLOY_BRANCH:-master}"
 HEALTH_URL="${DEPLOY_HEALTH_URL:-http://127.0.0.1:8080/api/health}"
 SKIP_GIT="${DEPLOY_SKIP_GIT:-0}"
@@ -16,6 +18,12 @@ echo "==> cwd: $APP_DIR"
 
 if [[ ! -f .env ]]; then
   echo "ERROR: 缺少 .env。请先：cp deploy/env.example .env 并填写 ADMIN_TOKEN"
+  exit 1
+fi
+
+if [[ ! -f Dockerfile.server ]]; then
+  echo "ERROR: 缺少 $APP_DIR/Dockerfile.server（当前目录不对或代码不完整）"
+  ls -la
   exit 1
 fi
 
@@ -50,11 +58,11 @@ else
   echo "==> 跳过 git 更新（DEPLOY_SKIP_GIT=1）"
 fi
 
-echo "==> docker compose build"
-"${COMPOSE[@]}" build
+echo "==> docker build -f Dockerfile.server -t ${IMAGE_TAG} ."
+docker build -f Dockerfile.server -t "$IMAGE_TAG" .
 
-echo "==> docker compose up -d"
-"${COMPOSE[@]}" up -d --remove-orphans
+echo "==> docker compose up -d --no-build"
+"${COMPOSE[@]}" up -d --no-build --remove-orphans --force-recreate
 
 echo "==> 等待健康检查 ${HEALTH_URL}"
 ok=0

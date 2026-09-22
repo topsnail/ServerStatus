@@ -123,7 +123,8 @@
 cp deploy/env.example .env
 mkdir -p data
 cp server/config.json data/config.json
-docker compose --project-directory . -f deploy/docker-compose.yml up -d --build
+docker build -f Dockerfile.server -t serverstatus:local .
+docker compose --project-directory . -f deploy/docker-compose.yml up -d
 ```
 
 **成功**：`http://127.0.0.1:8080/` 能开，`/api/health` 返回 JSON。
@@ -525,6 +526,9 @@ DEPLOY_SKIP_GIT=1 ./scripts/deploy.sh   # 首次
 ./scripts/deploy.sh                     # 日常
 docker compose --project-directory . -f deploy/docker-compose.yml ps
 docker compose --project-directory . -f deploy/docker-compose.yml logs -f --tail=100
+# 改代码后重新构建镜像再启动：
+# docker build -f Dockerfile.server -t serverstatus:local .
+# docker compose --project-directory . -f deploy/docker-compose.yml up -d --force-recreate
 curl -s http://127.0.0.1:8080/api/health
 curl -I https://s.joanan.cn/api/health
 bash scripts/backup.sh

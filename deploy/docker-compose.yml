@@ -1,18 +1,16 @@
 # 生产编排：配置与统计落在仓库外的 data/，部署不会覆盖。
+# 镜像由 scripts/deploy.sh 用 `docker build -f Dockerfile.server` 构建
+#（避免 Compose v5 bake + --project-directory 把 context/dockerfile 路径解析错）。
 # 在项目根目录执行：
-#   docker compose -f deploy/docker-compose.yml up -d
+#   docker build -f Dockerfile.server -t serverstatus:local .
+#   docker compose --project-directory . -f deploy/docker-compose.yml up -d
 
 services:
   serverstatus-server:
-    build:
-      # 路径相对本 compose 文件所在目录（deploy/）
-      # Compose v2/v5 bake：dockerfile 也按 compose 文件目录解析，不能写裸 Dockerfile.server
-      context: ..
-      dockerfile: ../Dockerfile.server
     image: serverstatus:local
     container_name: serverstatus-server
     restart: unless-stopped
-    # 路径相对本文件所在目录（deploy/）；配合 deploy.sh 的 --project-directory 仓库根
+    # 下列相对路径相对本文件所在目录（deploy/）
     env_file:
       - ../.env
     environment:
@@ -28,7 +26,6 @@ services:
     volumes:
       - ../data/config.json:/app/config/config.json
       - ../data:/app/data
-
     ports:
       # WebUI / API：仅本机，给 1Panel 反代
       - "127.0.0.1:8080:80"
