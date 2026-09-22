@@ -6,3 +6,8 @@ output/
 
 # pycharm
 .idea
+
+# Production secrets & runtime data (never commit)
+.env
+data/
+backups/

@@ -1,0 +1,39 @@
+# 生产编排：配置与统计落在仓库外的 data/，部署不会覆盖。
+# 在项目根目录执行：
+#   docker compose -f deploy/docker-compose.yml up -d
+
+services:
+  serverstatus-server:
+    build:
+      context: ..
+      dockerfile: Dockerfile.server
+    image: serverstatus:local
+    container_name: serverstatus-server
+    restart: unless-stopped
+    # 路径相对本文件所在目录（deploy/）；配合 deploy.sh 的 --project-directory 仓库根
+    env_file:
+      - ../.env
+    environment:
+      ADMIN_TOKEN: "${ADMIN_TOKEN:-}"
+      CONFIG_PATH: /app/config/config.json
+      STATS_PATH: /app/data/stats.json
+      WEB_DIR: /app/web
+      HTTP_ADDR: ":80"
+      AGENT_ADDR: ":35601"
+      TZ: "${TZ:-Asia/Shanghai}"
+      INSECURE_CALLBACK_TLS: "${INSECURE_CALLBACK_TLS:-false}"
+      VERBOSE: "${VERBOSE:-false}"
+    volumes:
+      - ../data/config.json:/app/config/config.json
+      - ../data:/app/data
+
+    ports:
+      # WebUI / API：仅本机，给 1Panel 反代
+      - "127.0.0.1:8080:80"
+      # Agent 上报：需对公网或客户端可达
+      - "35601:35601"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
