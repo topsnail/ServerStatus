@@ -462,9 +462,12 @@ cd /apps/serverstatus
 
 **看日志时：**
 
+- 先看有没有步骤 **Check required secrets present**（缺机密会在这里红）  
 - 绿色勾且日志有 `Deploy OK` / `workflow done` → 成功  
-- 红色但其实服务器已更新 → 旧版曾开 `script_stop` 易误报；当前工作流已按 `1.yml` 去掉  
-- SSH 连不上 → 回 7.2/7.3 查密钥与 `DEPLOY_HOST` / `DEPLOY_USER`
+- 约几秒就红、且看不到 `==> whoami=` → **SSH 没连上**（密钥/`DEPLOY_USER`/`DEPLOY_HOST`/安全组 22 端口）  
+- 能看到 `==> whoami=` 之后才红 → 看后面第一条报错（常见：目录不存在、docker 权限、健康检查失败）  
+- 本机先自测：`ssh -i $HOME\Desktop\vps_deploy -o IdentitiesOnly=yes 用户@服务器IP`  
+- 红色但其实服务器已更新 → 旧版曾开 `script_stop` 易误报；当前已按 `1.yml` 去掉
 
 ---
 

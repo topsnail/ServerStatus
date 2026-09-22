@@ -22,6 +22,45 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
+      # 不打印机密内容，只确认「有没有配」——缺哪个一眼能看出来
+      - name: Check required secrets present
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_APP_DIR: ${{ secrets.DEPLOY_APP_DIR }}
+        run: |
+          set -euo pipefail
+          ok=1
+          for name in DEPLOY_HOST DEPLOY_USER DEPLOY_SSH_KEY DEPLOY_APP_DIR; do
+            # 间接取值，避免把内容打到日志
+            eval "val=\${$name}"
+            if [ -z "${val}" ]; then
+              echo "❌ 缺少仓库机密: $name"
+              ok=0
+            else
+              echo "✅ 已配置: $name（长度 ${#val}）"
+            fi
+          done
+          if [ "$ok" -ne 1 ]; then
+            echo "请到仓库 Settings → Secrets and variables → Actions 补全后再跑。"
+            exit 1
+          fi
+          # 私钥常见粘贴错误：少了头尾、或用了公钥
+          case "$DEPLOY_SSH_KEY" in
+            *"BEGIN OPENSSH PRIVATE KEY"*|*"BEGIN RSA PRIVATE KEY"*|*"BEGIN PRIVATE KEY"*)
+              echo "✅ DEPLOY_SSH_KEY 看起来像私钥"
+              ;;
+            *"BEGIN"*"PUBLIC"*)
+              echo "❌ DEPLOY_SSH_KEY 填成了公钥，请改成桌面 vps_deploy 私钥全文"
+              exit 1
+              ;;
+            *)
+              echo "⚠️ DEPLOY_SSH_KEY 缺少 BEGIN/END 头尾，请检查是否粘贴完整"
+              exit 1
+              ;;
+          esac
+
       - name: Deploy over SSH
         uses: appleboy/ssh-action@v1.2.0
         env:
@@ -32,7 +71,10 @@ jobs:
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           port: ${{ secrets.DEPLOY_PORT || 22 }}
           # 不要用 script_stop：已知会误报 status 1；靠下方 set -e 即可（见 1.yml）
+          timeout: 60s
           command_timeout: 20m
+          # 临时打开，便于在 Actions 日志里看到 SSH 握手细节；稳定后可改 false
+          debug: true
           envs: DEPLOY_APP_DIR
           script: |
             set -euxo pipefail
@@ -51,6 +93,7 @@ jobs:
             docker compose version
             command -v curl
 
+            test -d "$APP_DIR" || { echo "ERROR: 目录不存在: $APP_DIR（检查机密 DEPLOY_APP_DIR）"; exit 1; }
             cd "$APP_DIR"
             echo "==> git fetch/reset $BRANCH（丢弃已跟踪文件的本地改动；.env 与 data/ 不受影响）"
             git fetch origin "$BRANCH"
