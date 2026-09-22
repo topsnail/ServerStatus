@@ -1,3 +1,5 @@
+# Auto-deploy: SSH → git reset → docker build/up → health check
+# 借鉴仓库内 1.yml（已验证可用）的写法；适配 ServerStatus + Docker
 name: Deploy
 
 on:
@@ -5,33 +7,62 @@ on:
     branches: [master]
     paths-ignore:
       - "**.md"
-      - "LICENSE"
       - ".gitignore"
+      - ".gitattributes"
+      - "LICENSE"
   workflow_dispatch:
 
 concurrency:
-  group: deploy-production
-  cancel-in-progress: true
+  group: deploy-serverstatus-production
+  # 部署中途取消容易留下半成品容器；与 1.yml 一致用 false
+  cancel-in-progress: false
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - name: Deploy over SSH
         uses: appleboy/ssh-action@v1.2.0
+        env:
+          DEPLOY_APP_DIR: ${{ secrets.DEPLOY_APP_DIR }}
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          # 未配置 DEPLOY_PORT 机密时默认 22
           port: ${{ secrets.DEPLOY_PORT || 22 }}
-          script_stop: true
-          command_timeout: 15m
+          # 不要用 script_stop：已知会误报 status 1；靠下方 set -e 即可（见 1.yml）
+          command_timeout: 20m
+          envs: DEPLOY_APP_DIR
           script: |
-            set -euo pipefail
-            APP_DIR='${{ secrets.DEPLOY_APP_DIR }}'
-            test -n "$APP_DIR"
+            set -euxo pipefail
+            export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
+            # 1Panel / 自定义 Docker 常见路径
+            for d in /usr/bin /usr/local/bin /opt/bin; do
+              [ -d "$d" ] && export PATH="$d:$PATH"
+            done
+
+            APP_DIR="${DEPLOY_APP_DIR:-/apps/serverstatus}"
+            BRANCH=master
+
+            echo "==> whoami=$(whoami) host=$(hostname) app_dir=$APP_DIR"
+            command -v git
+            command -v docker
+            docker compose version
+            command -v curl
+
             cd "$APP_DIR"
+            echo "==> git fetch/reset $BRANCH（丢弃已跟踪文件的本地改动；.env 与 data/ 不受影响）"
+            git fetch origin "$BRANCH"
+            git checkout "$BRANCH"
+            git reset --hard "origin/$BRANCH"
+            git log -1 --oneline
+            git status --short || true
+
+            # 工作流已更新代码，脚本内不再 git pull
+            export DEPLOY_SKIP_GIT=1
+            export DEPLOY_BRANCH="$BRANCH"
             chmod +x scripts/deploy.sh scripts/backup.sh
+            echo "==> run deploy.sh"
             ./scripts/deploy.sh
+            echo "==> workflow done"

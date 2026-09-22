@@ -1,0 +1,74 @@
+# Auto-deploy: SSH → git pull → 按需 npm ci → build → pm2 restart drive
+name: deploy
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - ".gitignore"
+      - ".gitattributes"
+      - "LICENSE"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-drive-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          DEPLOY_APP_DIR: ${{ secrets.DEPLOY_APP_DIR }}
+          DEPLOY_RESTART_CMD: ${{ secrets.DEPLOY_RESTART_CMD }}
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          # 不要用 script_stop：已知会误报 status 1；靠下方 set -e 即可
+          command_timeout: 20m
+          envs: DEPLOY_APP_DIR,DEPLOY_RESTART_CMD
+          script: |
+            set -euxo pipefail
+            export PATH="/usr/local/bin:/usr/bin:$HOME/.local/bin:$PATH"
+            # 1Panel / nvm / custom Node installs (adjust if your node path differs)
+            for d in /usr/local/node/bin /opt/1panel/runtime/node/bin; do
+              [ -d "$d" ] && export PATH="$d:$PATH"
+            done
+            if [ -d "$HOME/.nvm/versions/node" ]; then
+              newest="$(ls -1d "$HOME/.nvm/versions/node"/v* 2>/dev/null | sort -V | tail -n1 || true)"
+              [ -n "${newest:-}" ] && [ -d "$newest/bin" ] && export PATH="$newest/bin:$PATH"
+            fi
+
+            APP_DIR="${DEPLOY_APP_DIR:-/apps/drive}"
+            # Leave empty to use deploy.sh smart PM2 restart-or-start
+            RESTART_CMD="${DEPLOY_RESTART_CMD:-}"
+            BRANCH=main
+
+            echo "==> whoami=$(whoami) host=$(hostname) app_dir=$APP_DIR"
+            command -v git
+            command -v node || true
+            command -v npm || true
+            command -v pm2 || true
+
+            cd "$APP_DIR"
+            echo "==> git fetch/reset $BRANCH (discard local tracked edits; .env/data stay)"
+            git fetch origin "$BRANCH"
+            git checkout "$BRANCH"
+            # 生产机不应手改仓库内代码；本地改动会挡住 pull（常见于误改 deploy.sh）
+            git reset --hard "origin/$BRANCH"
+            git log -1 --oneline
+            git status --short || true
+            export DEPLOY_APP_DIR="$APP_DIR"
+            export DEPLOY_BRANCH="$BRANCH"
+            export DEPLOY_RESTART_CMD="$RESTART_CMD"
+            export DEPLOY_SKIP_PULL=1
+            chmod +x scripts/deploy.sh
+            echo "==> run deploy.sh"
+            ./scripts/deploy.sh
+            echo "==> workflow done"

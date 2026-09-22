@@ -457,8 +457,14 @@ cd /apps/serverstatus
 
 ### 7.5 触发
 
-- `git push` 到 `master`（只改 `.md` 默认不触发）  
-- 或「操作」→ **Deploy** → **运行工作流**
+- `git push` 到 `master`（**只改 `.md` / LICENSE 不会触发**，这是故意的）  
+- 或「操作」→ **Deploy** → **运行工作流**（改完机密后建议先手动跑一次验证）
+
+**看日志时：**
+
+- 绿色勾且日志有 `Deploy OK` / `workflow done` → 成功  
+- 红色但其实服务器已更新 → 旧版曾开 `script_stop` 易误报；当前工作流已按 `1.yml` 去掉  
+- SSH 连不上 → 回 7.2/7.3 查密钥与 `DEPLOY_HOST` / `DEPLOY_USER`
 
 ---
 
