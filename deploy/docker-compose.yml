@@ -5,8 +5,10 @@
 services:
   serverstatus-server:
     build:
+      # 路径相对本 compose 文件所在目录（deploy/）
+      # Compose v2/v5 bake：dockerfile 也按 compose 文件目录解析，不能写裸 Dockerfile.server
       context: ..
-      dockerfile: Dockerfile.server
+      dockerfile: ../Dockerfile.server
     image: serverstatus:local
     container_name: serverstatus-server
     restart: unless-stopped
